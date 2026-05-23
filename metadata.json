@@ -1,0 +1,6 @@
+{
+  "name": "Privacy-First Healthcare Hub",
+  "description": "Store, manage and share your medical records on your terms across any hospital or clinic in Sri Lanka.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
