@@ -143,6 +143,12 @@ export const authAPI = {
   me: (): Promise<User> =>
     apiFetch('/auth/me'),
 
+  updateMe: (payload: { full_name: string }): Promise<User> =>
+    apiFetch('/auth/me', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
   listDoctors: (): Promise<Doctor[]> =>
     apiFetch('/auth/doctors'),
 };

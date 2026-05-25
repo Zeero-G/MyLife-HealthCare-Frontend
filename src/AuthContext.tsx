@@ -16,6 +16,8 @@ interface AuthContextType {
   register: (fullName: string, email: string, password: string, role?: UserRole, gender?: 'male' | 'female') => Promise<void>;
   logout: () => void;
   clearError: () => void;
+  updateUser: (data: { full_name: string }) => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -84,10 +86,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     authAPI.logout().catch(() => {});
     clearTokens();
+    // Clear persisted view on logout
+    localStorage.removeItem('mylife_view');
+    localStorage.removeItem('mylife_tab');
     setUser(null);
   }, []);
 
   const clearError = useCallback(() => setError(null), []);
+
+  const updateUser = useCallback(async (data: { full_name: string }) => {
+    const updated = await authAPI.updateMe(data);
+    setUser(updated);
+  }, []);
+
+  const refreshUser = useCallback(async () => {
+    const me = await authAPI.me();
+    setUser(me);
+  }, []);
 
   return (
     <AuthContext.Provider value={{
@@ -99,6 +114,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       register,
       logout,
       clearError,
+      updateUser,
+      refreshUser,
     }}>
       {children}
     </AuthContext.Provider>
