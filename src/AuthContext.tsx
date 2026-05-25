@@ -13,7 +13,7 @@ interface AuthContextType {
   isLoading: boolean;
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
-  register: (fullName: string, email: string, password: string, role?: UserRole) => Promise<void>;
+  register: (fullName: string, email: string, password: string, role?: UserRole, gender?: 'male' | 'female') => Promise<void>;
   logout: () => void;
   clearError: () => void;
 }
@@ -64,11 +64,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const register = useCallback(async (fullName: string, email: string, password: string, role: UserRole = 'patient') => {
+  const register = useCallback(async (fullName: string, email: string, password: string, role: UserRole = 'patient', gender?: 'male' | 'female') => {
     setError(null);
     setIsLoading(true);
     try {
-      const tokens = await authAPI.register({ full_name: fullName, email, password, role });
+      const tokens = await authAPI.register({ full_name: fullName, email, password, role, gender });
       setTokens(tokens.access_token, tokens.refresh_token);
       const me = await authAPI.me();
       setUser(me);

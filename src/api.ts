@@ -7,14 +7,23 @@
 import type {
   TokenResponse,
   User,
+  Doctor,
   LoginPayload,
   RegisterPayload,
   MedicalRecord,
   CreateRecordPayload,
   ShareQRResponse,
   EmergencyProfile,
+  EmergencyProfilePayload,
   FamilyMember,
   AIResult,
+  Appointment,
+  AppointmentCreatePayload,
+  AppointmentUpdatePayload,
+  MenstrualCycle,
+  MenstrualCyclePayload,
+  PregnancyRecord,
+  PregnancyPayload,
 } from './types';
 
 // ── Token Management ───────────────────────────────────────
@@ -133,6 +142,9 @@ export const authAPI = {
 
   me: (): Promise<User> =>
     apiFetch('/auth/me'),
+
+  listDoctors: (): Promise<Doctor[]> =>
+    apiFetch('/auth/doctors'),
 };
 
 // ── Medical Records API ────────────────────────────────────
@@ -140,6 +152,9 @@ export const authAPI = {
 export const recordsAPI = {
   list: (): Promise<MedicalRecord[]> =>
     apiFetch('/records/'),
+
+  familyRecords: (patientId: string): Promise<MedicalRecord[]> =>
+    apiFetch(`/records/family/${patientId}`),
 
   get: (recordId: string): Promise<MedicalRecord> =>
     apiFetch(`/records/${recordId}`),
@@ -180,6 +195,24 @@ export const recordsAPI = {
 export const emergencyAPI = {
   getProfile: (userId: string): Promise<EmergencyProfile> =>
     apiFetch(`/emergency/profile/${userId}`, {}, true),
+
+  upsert: (payload: EmergencyProfilePayload): Promise<EmergencyProfile> =>
+    apiFetch('/emergency/profile/upsert', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  create: (payload: EmergencyProfilePayload): Promise<EmergencyProfile> =>
+    apiFetch('/emergency/profile', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  update: (payload: EmergencyProfilePayload): Promise<EmergencyProfile> =>
+    apiFetch('/emergency/profile', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
 };
 
 // ── Family API ─────────────────────────────────────────────
@@ -195,6 +228,53 @@ export const familyAPI = {
 
   unlink: (linkedUserId: string): Promise<{ message: string }> =>
     apiFetch(`/family/unlink/${linkedUserId}`, { method: 'DELETE' }),
+};
+
+// ── Appointments API ───────────────────────────────────────
+
+export const appointmentsAPI = {
+  book: (payload: AppointmentCreatePayload): Promise<Appointment> =>
+    apiFetch('/appointments/', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  myAppointments: (): Promise<Appointment[]> =>
+    apiFetch('/appointments/mine'),
+
+  doctorAppointments: (): Promise<Appointment[]> =>
+    apiFetch('/appointments/doctor'),
+
+  update: (appointmentId: string, payload: AppointmentUpdatePayload): Promise<Appointment> =>
+    apiFetch(`/appointments/${appointmentId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  cancel: (appointmentId: string): Promise<void> =>
+    apiFetch(`/appointments/${appointmentId}`, { method: 'DELETE' }),
+};
+
+// ── Women's Health API ─────────────────────────────────────
+
+export const healthAPI = {
+  getCycles: (): Promise<MenstrualCycle[]> =>
+    apiFetch('/health/cycle'),
+
+  logCycle: (payload: MenstrualCyclePayload): Promise<MenstrualCycle> =>
+    apiFetch('/health/cycle', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  getPregnancy: (): Promise<PregnancyRecord[]> =>
+    apiFetch('/health/pregnancy'),
+
+  logPregnancy: (payload: PregnancyPayload): Promise<PregnancyRecord> =>
+    apiFetch('/health/pregnancy', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 };
 
 // ── AI API ─────────────────────────────────────────────────

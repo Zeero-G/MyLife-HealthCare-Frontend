@@ -28,6 +28,8 @@ export default function App() {
   const [emailInput, setEmailInput] = useState('');
   const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
+  const [roleInput, setRoleInput] = useState<'patient' | 'doctor' | 'family_member'>('patient');
+  const [genderInput, setGenderInput] = useState<'male' | 'female'>('female');
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
 
@@ -49,7 +51,7 @@ export default function App() {
     if (emailInput && usernameInput && passwordInput) {
       setIsAuthLoading(true);
       try {
-        await register(usernameInput, emailInput, passwordInput, 'patient');
+        await register(usernameInput, emailInput, passwordInput, roleInput, genderInput);
         setIsSubmitted(true);
       } catch (err) {
         console.error('Registration error', err);
@@ -131,15 +133,10 @@ export default function App() {
                 setActiveSection(null);
                 resetForm();
               }}
-              className="flex items-center justify-center rounded-full w-10 h-10 sm:w-11 sm:h-11 shrink-0 liquid-crystal shadow-md cursor-pointer focus:outline-none"
+              className="flex items-center justify-center rounded-full w-10 h-10 sm:w-11 sm:h-11 shrink-0 bg-white shadow-md cursor-pointer focus:outline-none overflow-hidden hover:scale-105 transition-transform"
               title="Home"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path 
-                  d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" 
-                  fill="rgb(59, 130, 246)"
-                />
-              </svg>
+              <img src="/logo.png" alt="MyLife" className="w-full h-full object-cover" />
             </button>
 
             {/* Right pill container using Liquid Crystal Panels style */}
@@ -472,8 +469,35 @@ export default function App() {
                           </div>
                           
                           <div>
-                            <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
-                              Password
+                            <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">                                Select Role
+                              </label>
+                              <select 
+                                value={roleInput}
+                                onChange={(e) => setRoleInput(e.target.value as any)}
+                                className="w-full text-[13px] border border-gray-200 rounded-lg py-2 px-3 focus:outline-none focus:border-blue-500 bg-white"
+                              >
+                                <option value="patient">Patient</option>
+                                <option value="doctor">Doctor</option>
+                                <option value="family_member">Family Member</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
+                                Gender
+                              </label>
+                              <select 
+                                value={genderInput}
+                                onChange={(e) => setGenderInput(e.target.value as any)}
+                                className="w-full text-[13px] border border-gray-200 rounded-lg py-2 px-3 focus:outline-none focus:border-blue-500 bg-white"
+                              >
+                                <option value="male">Male</option>
+                                <option value="female">Female</option>
+                              </select>
+                            </div>
+                            
+                            <div>
+                              <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">                              Password
                             </label>
                             <input
                               type="password"

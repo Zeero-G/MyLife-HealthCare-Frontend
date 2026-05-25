@@ -1,12 +1,20 @@
 // ── User & Auth Types ──────────────────────────────────────
 
-export type UserRole = 'patient' | 'doctor' | 'admin';
+export type UserRole = 'patient' | 'doctor' | 'admin' | 'family_member';
 
 export interface User {
   id: string;
   email: string;
   full_name: string;
   role: UserRole;
+  gender?: 'male' | 'female';
+}
+
+export interface Doctor {
+  id: string;
+  full_name: string;
+  email: string;
+  gender?: 'male' | 'female';
 }
 
 export interface TokenResponse {
@@ -20,6 +28,7 @@ export interface RegisterPayload {
   email: string;
   password: string;
   role: UserRole;
+  gender?: 'male' | 'female';
 }
 
 export interface LoginPayload {
@@ -72,6 +81,15 @@ export interface EmergencyProfile {
   current_medications: string[];
 }
 
+export interface EmergencyProfilePayload {
+  blood_type?: string;
+  allergies?: string[];
+  chronic_conditions?: string[];
+  emergency_contact_name?: string;
+  emergency_contact_phone?: string;
+  current_medications?: string[];
+}
+
 // ── Family Types ───────────────────────────────────────────
 
 export interface FamilyMember {
@@ -79,6 +97,78 @@ export interface FamilyMember {
   owner_id: string;
   linked_user_id: string;
   relationship: string;
+  // Enriched from users table (after backend fix)
+  full_name?: string;
+  email?: string;
+  role?: string;
+  gender?: string;
+}
+
+// ── Appointments ───────────────────────────────────────────
+
+export type AppointmentStatus = 'pending' | 'confirmed' | 'completed' | 'cancelled';
+
+export interface Appointment {
+  id: string;
+  patient_id: string;
+  doctor_id: string;
+  scheduled_at: string;
+  reason: string | null;
+  status: AppointmentStatus;
+  notes: string | null;
+  created_at: string;
+  // Enriched fields
+  doctor_name?: string;
+  doctor_email?: string;
+  patient_name?: string;
+  patient_email?: string;
+  patient_gender?: string;
+}
+
+export interface AppointmentCreatePayload {
+  doctor_id: string;
+  scheduled_at: string;
+  reason?: string;
+}
+
+export interface AppointmentUpdatePayload {
+  status?: AppointmentStatus;
+  notes?: string;
+  scheduled_at?: string;
+}
+
+// ── Women's Health ─────────────────────────────────────────
+
+export interface MenstrualCycle {
+  id: string;
+  user_id: string;
+  start_date: string;
+  end_date: string | null;
+  cycle_length: number | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface MenstrualCyclePayload {
+  start_date: string;
+  end_date?: string;
+  cycle_length?: number;
+  notes?: string;
+}
+
+export interface PregnancyRecord {
+  id: string;
+  user_id: string;
+  lmp_date: string;
+  due_date: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface PregnancyPayload {
+  lmp_date: string;
+  due_date?: string;
+  notes?: string;
 }
 
 // ── AI Processing ──────────────────────────────────────────
