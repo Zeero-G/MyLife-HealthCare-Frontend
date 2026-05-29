@@ -1,14 +1,16 @@
 import type { EmergencyProfile } from '../types';
+import { normalizeEmergencyProfile } from './emergencyProfile';
 
 const CACHE_KEY = 'mylife_emergency_profile';
 
-/** Session-only cache for owner profile (backend has no GET /emergency/profile). */
+/** Optional session fallback when GET /emergency/profile fails due to network error only. */
 export function loadCachedEmergencyProfile(userId: string): EmergencyProfile | null {
   try {
     const raw = sessionStorage.getItem(CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { userId: string; profile: EmergencyProfile };
-    return parsed.userId === userId ? parsed.profile : null;
+    if (parsed.userId !== userId) return null;
+    return normalizeEmergencyProfile(parsed.profile);
   } catch {
     return null;
   }

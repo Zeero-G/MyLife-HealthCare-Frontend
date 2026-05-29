@@ -31,9 +31,19 @@ import { formatApiErrorDetail, AI_PERMISSION_MESSAGE } from './utils/apiError';
 
 export { formatApiErrorDetail, SIGNED_URL_HINT } from './utils/apiError';
 
-function apiErrorFromResponse(status: number, body: { detail?: unknown }): Error {
+export class HttpError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'HttpError';
+    this.status = status;
+  }
+}
+
+function apiErrorFromResponse(status: number, body: { detail?: unknown }): HttpError {
   const message = formatApiErrorDetail(body.detail) || `HTTP ${status}`;
-  return new Error(message);
+  return new HttpError(status, message);
 }
 
 // ── Token Management ───────────────────────────────────────
@@ -81,6 +91,11 @@ async function apiFetch<T>(
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
+  }
+
+  const method = (options.method || 'GET').toUpperCase();
+  if (import.meta.env.DEV && url.startsWith('/emergency/profile')) {
+    console.debug(`[EmergencyProfile] fetch ${method} ${API_BASE}${url}`);
   }
 
   const response = await fetch(`${API_BASE}${url}`, {
@@ -208,7 +223,30 @@ export const recordsAPI = {
 
 // ── Emergency API ──────────────────────────────────────────
 
+const EMERGENCY_PROFILE_PATH = '/emergency/profile';
+const EMERGENCY_PROFILE_UPSERT_PATH = '/emergency/profile/upsert';
+
+function logEmergencyRequest(method: string, path: string, extra?: Record<string, unknown>): void {
+  if (!import.meta.env.DEV) return;
+  console.debug(`[EmergencyProfile] ${method} ${path}`, extra ?? '');
+}
+
 export const emergencyAPI = {
+  /** Load authenticated owner profile — GET /emergency/profile only */
+  getProfile: (): Promise<EmergencyProfile> => {
+    logEmergencyRequest('GET', EMERGENCY_PROFILE_PATH);
+    return apiFetch<EmergencyProfile>(EMERGENCY_PROFILE_PATH, { method: 'GET' });
+  },
+
+  /** Create or update owner profile — POST /emergency/profile/upsert (sole save entry point) */
+  saveProfile: (payload: EmergencyProfilePayload): Promise<EmergencyProfile> => {
+    logEmergencyRequest('POST', EMERGENCY_PROFILE_UPSERT_PATH, { payload });
+    return apiFetch<EmergencyProfile>(EMERGENCY_PROFILE_UPSERT_PATH, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
   getPublicByToken: (token: string): Promise<EmergencyPublicProfile> =>
     apiFetch(`/emergency/access/${encodeURIComponent(token)}`, {}, true),
 
@@ -217,24 +255,6 @@ export const emergencyAPI = {
 
   revokeAccessToken: (token: string): Promise<void> =>
     apiFetch(`/emergency/access-token/${encodeURIComponent(token)}`, { method: 'DELETE' }),
-
-  upsert: (payload: EmergencyProfilePayload): Promise<EmergencyProfile> =>
-    apiFetch('/emergency/profile/upsert', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-
-  create: (payload: EmergencyProfilePayload): Promise<EmergencyProfile> =>
-    apiFetch('/emergency/profile', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-
-  update: (payload: EmergencyProfilePayload): Promise<EmergencyProfile> =>
-    apiFetch('/emergency/profile', {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    }),
 };
 
 // ── Family API ─────────────────────────────────────────────

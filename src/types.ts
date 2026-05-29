@@ -71,31 +71,56 @@ export interface ShareQRResponse {
 
 // ── Emergency Profile ──────────────────────────────────────
 
+export type MedicalInfoStatus = 'unknown' | 'none' | 'has_items';
+
+export interface EmergencyContact {
+  name: string;
+  phone: string;
+  relationship?: string;
+  priority?: number;
+  notes?: string;
+}
+
 export interface EmergencyProfile {
   user_id: string;
   blood_type: string | null;
   allergies: string[];
   chronic_conditions: string[];
-  emergency_contact_name: string | null;
-  emergency_contact_phone: string | null;
   current_medications: string[];
+  emergency_contacts: EmergencyContact[];
+  allergies_status: MedicalInfoStatus;
+  conditions_status: MedicalInfoStatus;
+  medications_status: MedicalInfoStatus;
+  last_confirmed_at: string | null;
+  show_emergency_contacts_publicly: boolean;
+  /** @deprecated Legacy single contact — mapped to emergency_contacts[0] */
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
 }
 
 export interface EmergencyProfilePayload {
   blood_type?: string;
   allergies?: string[];
   chronic_conditions?: string[];
-  emergency_contact_name?: string;
-  emergency_contact_phone?: string;
   current_medications?: string[];
+  emergency_contacts?: EmergencyContact[];
+  allergies_status?: MedicalInfoStatus;
+  conditions_status?: MedicalInfoStatus;
+  medications_status?: MedicalInfoStatus;
+  show_emergency_contacts_publicly?: boolean;
 }
 
-/** Public emergency view — safe fields only (no contact details). */
+/** Public emergency view — token access; contacts optional per backend. */
 export interface EmergencyPublicProfile {
   blood_type: string | null;
+  allergies_status: MedicalInfoStatus;
   allergies: string[];
+  conditions_status: MedicalInfoStatus;
   chronic_conditions: string[];
+  medications_status: MedicalInfoStatus;
   current_medications: string[];
+  last_confirmed_at: string | null;
+  emergency_contacts?: EmergencyContact[] | null;
 }
 
 export interface EmergencyAccessTokenResponse {
