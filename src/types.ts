@@ -90,6 +90,20 @@ export interface EmergencyProfilePayload {
   current_medications?: string[];
 }
 
+/** Public emergency view — safe fields only (no contact details). */
+export interface EmergencyPublicProfile {
+  blood_type: string | null;
+  allergies: string[];
+  chronic_conditions: string[];
+  current_medications: string[];
+}
+
+export interface EmergencyAccessTokenResponse {
+  token: string;
+  expires_at: string;
+  access_path: string;
+}
+
 // ── Family Types ───────────────────────────────────────────
 
 export interface FamilyMember {

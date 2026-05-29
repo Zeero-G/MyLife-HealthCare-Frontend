@@ -15,6 +15,8 @@ import type {
   ShareQRResponse,
   EmergencyProfile,
   EmergencyProfilePayload,
+  EmergencyPublicProfile,
+  EmergencyAccessTokenResponse,
   FamilyMember,
   AIResult,
   Appointment,
@@ -25,6 +27,14 @@ import type {
   PregnancyRecord,
   PregnancyPayload,
 } from './types';
+import { formatApiErrorDetail, AI_PERMISSION_MESSAGE } from './utils/apiError';
+
+export { formatApiErrorDetail, SIGNED_URL_HINT } from './utils/apiError';
+
+function apiErrorFromResponse(status: number, body: { detail?: unknown }): Error {
+  const message = formatApiErrorDetail(body.detail) || `HTTP ${status}`;
+  return new Error(message);
+}
 
 // ── Token Management ───────────────────────────────────────
 
@@ -96,7 +106,7 @@ async function apiFetch<T>(
           const retryResp = await fetch(`${API_BASE}${url}`, { ...options, headers });
           if (!retryResp.ok) {
             const err = await retryResp.json().catch(() => ({ detail: 'Request failed' }));
-            throw new Error(err.detail || `HTTP ${retryResp.status}`);
+            throw apiErrorFromResponse(retryResp.status, err);
           }
           if (retryResp.status === 204) return undefined as T;
           return retryResp.json();
@@ -115,7 +125,7 @@ async function apiFetch<T>(
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({ detail: `HTTP ${response.status}` }));
-    throw new Error(err.detail || `HTTP ${response.status}`);
+    throw apiErrorFromResponse(response.status, err);
   }
 
   if (response.status === 204) return undefined as T;
@@ -199,8 +209,14 @@ export const recordsAPI = {
 // ── Emergency API ──────────────────────────────────────────
 
 export const emergencyAPI = {
-  getProfile: (userId: string): Promise<EmergencyProfile> =>
-    apiFetch(`/emergency/profile/${userId}`, {}, true),
+  getPublicByToken: (token: string): Promise<EmergencyPublicProfile> =>
+    apiFetch(`/emergency/access/${encodeURIComponent(token)}`, {}, true),
+
+  createAccessToken: (): Promise<EmergencyAccessTokenResponse> =>
+    apiFetch('/emergency/access-token', { method: 'POST' }),
+
+  revokeAccessToken: (token: string): Promise<void> =>
+    apiFetch(`/emergency/access-token/${encodeURIComponent(token)}`, { method: 'DELETE' }),
 
   upsert: (payload: EmergencyProfilePayload): Promise<EmergencyProfile> =>
     apiFetch('/emergency/profile/upsert', {
@@ -285,10 +301,28 @@ export const healthAPI = {
 
 // ── AI API ─────────────────────────────────────────────────
 
+async function fetchAI<T>(url: string): Promise<T> {
+  try {
+    return await apiFetch<T>(url);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message.toLowerCase() : '';
+    if (
+      msg.includes('not authorized') ||
+      msg.includes('not authenticated') ||
+      msg.includes('permission') ||
+      msg.includes('http 401') ||
+      msg.includes('http 403')
+    ) {
+      throw new Error(AI_PERMISSION_MESSAGE);
+    }
+    throw err;
+  }
+}
+
 export const aiAPI = {
   getResult: (docId: string): Promise<AIResult> =>
-    apiFetch(`/ai/results/${docId}`),
+    fetchAI(`/ai/results/${encodeURIComponent(docId)}`),
 
-  getSummary: (userId: string): Promise<AIResult[]> =>
-    apiFetch(`/ai/summary?user_id=${encodeURIComponent(userId)}`),
+  getSummary: (): Promise<AIResult[]> =>
+    fetchAI('/ai/summary'),
 };

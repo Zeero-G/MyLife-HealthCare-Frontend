@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { UploadCloud, FileText, X, CheckCircle, AlertCircle, Image, File } from 'lucide-react';
-import { recordsAPI } from '../api';
+import { recordsAPI, SIGNED_URL_HINT } from '../api';
 
 interface UploadedFile {
   name: string;
@@ -90,7 +90,7 @@ export default function UploadView() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Upload Document</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Upload PDFs or images. Files are securely stored and AI extraction is triggered automatically.
+          Upload PDFs or images. Files are stored with temporary signed links — copy into a record promptly.
         </p>
       </div>
 
@@ -162,14 +162,18 @@ export default function UploadView() {
                   </p>
                 )}
                 {u.status === 'done' && u.file_url && (
-                  <a
-                    href={u.file_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:underline mt-0.5 block"
-                  >
-                    View uploaded file ↗
-                  </a>
+                  <>
+                    <a
+                      href={u.file_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={SIGNED_URL_HINT}
+                      className="text-xs text-blue-600 hover:underline mt-0.5 block"
+                    >
+                      View uploaded file ↗
+                    </a>
+                    <p className="text-[10px] text-gray-400 mt-0.5">Temporary link — may expire.</p>
+                  </>
                 )}
               </div>
 
@@ -196,7 +200,7 @@ export default function UploadView() {
         {[
           { icon: '🔒', title: 'End-to-End Encrypted', desc: 'Files are encrypted in transit and at rest in Supabase Storage.' },
           { icon: '🤖', title: 'AI Extraction', desc: 'Our AI automatically extracts key data from your uploaded lab reports.' },
-          { icon: '🔗', title: 'Linkable to Records', desc: 'After upload, copy the file URL into any medical record entry.' },
+          { icon: '🔗', title: 'Linkable to Records', desc: 'After upload, copy the signed URL into a record. Links expire — reopen the record to refresh.' },
         ].map(card => (
           <div key={card.title} className="bg-white rounded-xl border border-gray-100 p-4 text-center">
             <span className="text-2xl mb-2 block">{card.icon}</span>

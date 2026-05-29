@@ -1,16 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Shield, Phone, AlertTriangle, Droplets, Pill,
-  Activity, Edit3, Save, X, Plus, Trash2, CheckCircle, AlertCircle
+  Activity, Edit3, Save, X, Plus, CheckCircle, AlertCircle, Link2, Copy, Trash2,
 } from 'lucide-react';
 import { emergencyAPI } from '../api';
 import { useAuth } from '../AuthContext';
-import type { EmergencyProfile, EmergencyProfilePayload } from '../types';
+import type { EmergencyProfile, EmergencyProfilePayload, EmergencyAccessTokenResponse } from '../types';
+import {
+  loadCachedEmergencyProfile,
+  cacheEmergencyProfile,
+} from '../utils/emergencyProfileCache';
+import { buildEmergencyAccessUrl } from '../utils/emergencyAccessUrl';
 
 const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
 function TagInput({
-  label, icon, values, onChange, placeholder, color = 'blue'
+  label, icon, values, onChange, placeholder, color = 'blue',
 }: {
   label: string; icon: React.ReactNode; values: string[];
   onChange: (v: string[]) => void; placeholder: string; color?: string;
@@ -35,7 +40,7 @@ function TagInput({
         {values.map(v => (
           <span key={v} className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${colorMap[color]}`}>
             {v}
-            <button onClick={() => onChange(values.filter(x => x !== v))} className="hover:opacity-70">
+            <button type="button" onClick={() => onChange(values.filter(x => x !== v))} className="hover:opacity-70">
               <X size={12} />
             </button>
           </span>
@@ -71,6 +76,10 @@ export default function EmergencyView() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  const [accessToken, setAccessToken] = useState<EmergencyAccessTokenResponse | null>(null);
+  const [tokenLoading, setTokenLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+
   const [form, setForm] = useState<EmergencyProfilePayload>({
     blood_type: '',
     allergies: [],
@@ -80,28 +89,32 @@ export default function EmergencyView() {
     current_medications: [],
   });
 
+  const applyProfile = useCallback((data: EmergencyProfile) => {
+    setProfile(data);
+    setForm({
+      blood_type: data.blood_type || '',
+      allergies: data.allergies || [],
+      chronic_conditions: data.chronic_conditions || [],
+      emergency_contact_name: data.emergency_contact_name || '',
+      emergency_contact_phone: data.emergency_contact_phone || '',
+      current_medications: data.current_medications || [],
+    });
+    if (user) cacheEmergencyProfile(user.id, data);
+  }, [user]);
+
   const fetchProfile = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     setError('');
-    try {
-      const data = await emergencyAPI.getProfile(user.id);
-      setProfile(data);
-      setForm({
-        blood_type: data.blood_type || '',
-        allergies: data.allergies || [],
-        chronic_conditions: data.chronic_conditions || [],
-        emergency_contact_name: data.emergency_contact_name || '',
-        emergency_contact_phone: data.emergency_contact_phone || '',
-        current_medications: data.current_medications || [],
-      });
-    } catch {
-      // No profile yet – that's fine, show create form
-      setProfile(null);
-    } finally {
+    const cached = loadCachedEmergencyProfile(user.id);
+    if (cached) {
+      applyProfile(cached);
       setLoading(false);
+      return;
     }
-  }, [user]);
+    setProfile(null);
+    setLoading(false);
+  }, [user, applyProfile]);
 
   useEffect(() => { fetchProfile(); }, [fetchProfile]);
 
@@ -112,15 +125,54 @@ export default function EmergencyView() {
     setSuccess('');
     try {
       const saved = await emergencyAPI.upsert(form);
-      setProfile(saved);
+      applyProfile(saved);
       setEditing(false);
       setSuccess('Emergency profile saved successfully!');
       setTimeout(() => setSuccess(''), 3000);
-    } catch (err: any) {
-      setError(err.message || 'Failed to save profile');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to save profile');
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleGenerateToken = async () => {
+    setTokenLoading(true);
+    setError('');
+    try {
+      const data = await emergencyAPI.createAccessToken();
+      setAccessToken(data);
+      setSuccess('Emergency access link generated. Share only with trusted responders.');
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to generate access link');
+    } finally {
+      setTokenLoading(false);
+    }
+  };
+
+  const handleRevokeToken = async () => {
+    if (!accessToken) return;
+    if (!confirm('Revoke this emergency access link? Responders will no longer be able to use it.')) return;
+    setTokenLoading(true);
+    setError('');
+    try {
+      await emergencyAPI.revokeAccessToken(accessToken.token);
+      setAccessToken(null);
+      setSuccess('Emergency access link revoked.');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to revoke link');
+    } finally {
+      setTokenLoading(false);
+    }
+  };
+
+  const copyAccessUrl = () => {
+    if (!accessToken) return;
+    navigator.clipboard.writeText(buildEmergencyAccessUrl(accessToken.token));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const startEdit = () => {
@@ -145,21 +197,17 @@ export default function EmergencyView() {
     );
   }
 
+  const shareUrl = accessToken ? buildEmergencyAccessUrl(accessToken.token) : '';
+
   return (
     <div className="p-6 max-w-3xl mx-auto">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <Shield size={24} className="text-red-500" /> Emergency Profile
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Critical medical info for emergency responders.
-            {user && (
-              <span className="ml-1 text-xs text-blue-500 font-medium">
-                Public QR: /emergency/profile/{user.id.slice(0, 8)}...
-              </span>
-            )}
+            Critical medical info for emergency responders. Public access uses a revocable link — not your user ID.
           </p>
         </div>
         {profile && !editing && (
@@ -183,25 +231,71 @@ export default function EmergencyView() {
         </div>
       )}
 
-      {/* Emergency Alert Banner */}
       <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3">
         <div className="p-2 bg-red-100 rounded-xl text-red-600 flex-shrink-0">
           <AlertTriangle size={20} />
         </div>
         <div>
-          <h3 className="font-bold text-red-800 text-sm">Emergency Responder Access</h3>
+          <h3 className="font-bold text-red-800 text-sm">Token-based responder access</h3>
           <p className="text-xs text-red-600 mt-0.5 leading-relaxed">
-            This profile is publicly accessible via your QR code for emergency responders.
-            Only include information you are comfortable sharing in an emergency.
+            Generate a time-limited link for responders. They will see blood type, allergies, conditions, and medications only — not your emergency contact details.
           </p>
         </div>
       </div>
 
-      {/* Edit Form or View */}
+      {profile && !editing && (
+        <div className="mb-6 bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+          <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+            <Link2 size={16} className="text-blue-600" /> Emergency access link
+          </h3>
+          {accessToken ? (
+            <>
+              <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
+                <p className="text-xs text-gray-500 mb-1">Share URL</p>
+                <p className="text-xs text-gray-800 break-all font-mono">{shareUrl}</p>
+                <p className="text-xs text-amber-600 mt-2">
+                  Expires: {new Date(accessToken.expires_at).toLocaleString()}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={copyAccessUrl}
+                  className="flex-1 min-w-[140px] flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition"
+                >
+                  {copied ? <><CheckCircle size={16} /> Copied</> : <><Copy size={16} /> Copy link</>}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRevokeToken}
+                  disabled={tokenLoading}
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50 transition disabled:opacity-60"
+                >
+                  <Trash2 size={16} /> Revoke
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={handleGenerateToken}
+              disabled={tokenLoading}
+              className="w-full py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {tokenLoading ? (
+                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Link2 size={16} />
+              )}
+              {tokenLoading ? 'Generating...' : 'Generate emergency access link'}
+            </button>
+          )}
+        </div>
+      )}
+
       {(editing || !profile) ? (
         <form onSubmit={handleSave} className="space-y-6">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-6">
-            {/* Blood Type */}
             <div>
               <label className="flex items-center gap-1.5 text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
                 <Droplets size={14} className="text-red-500" /> Blood Type
@@ -224,7 +318,6 @@ export default function EmergencyView() {
               </div>
             </div>
 
-            {/* Emergency Contact */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="flex items-center gap-1.5 text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
@@ -260,7 +353,6 @@ export default function EmergencyView() {
               placeholder="e.g. Penicillin, Peanuts... (press Enter)"
               color="orange"
             />
-
             <TagInput
               label="Chronic Conditions"
               icon={<Activity size={14} className="text-red-500" />}
@@ -269,7 +361,6 @@ export default function EmergencyView() {
               placeholder="e.g. Diabetes, Hypertension... (press Enter)"
               color="red"
             />
-
             <TagInput
               label="Current Medications"
               icon={<Pill size={14} className="text-green-500" />}
@@ -301,56 +392,57 @@ export default function EmergencyView() {
           </div>
         </form>
       ) : (
-        /* View Mode */
-        <div className="space-y-4">
-          {/* Blood Type Hero Card */}
-          <div className="bg-gradient-to-br from-red-500 to-rose-600 rounded-2xl p-6 text-white shadow-lg shadow-red-100">
-            <p className="text-red-100 text-xs font-semibold uppercase tracking-widest mb-1">Blood Type</p>
-            <p className="text-5xl font-black">{profile.blood_type || '—'}</p>
-          </div>
+        profile && (
+          <div className="space-y-4">
+            <div className="bg-gradient-to-br from-red-500 to-rose-600 rounded-2xl p-6 text-white shadow-lg shadow-red-100">
+              <p className="text-red-100 text-xs font-semibold uppercase tracking-widest mb-1">Blood Type</p>
+              <p className="text-5xl font-black">{profile.blood_type || '—'}</p>
+            </div>
 
-          {/* Emergency Contact */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-              <Phone size={14} /> Emergency Contact
-            </h3>
-            {profile.emergency_contact_name || profile.emergency_contact_phone ? (
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">
-                  {profile.emergency_contact_name?.[0]?.toUpperCase() || '?'}
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900">{profile.emergency_contact_name || '—'}</p>
-                  <p className="text-sm text-blue-600 font-medium">{profile.emergency_contact_phone || '—'}</p>
-                </div>
-              </div>
-            ) : <p className="text-sm text-gray-400">No emergency contact set.</p>}
-          </div>
-
-          {/* Info Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {[
-              { label: 'Allergies', icon: <AlertTriangle size={16} className="text-orange-500" />, items: profile.allergies, color: 'bg-orange-100 text-orange-700' },
-              { label: 'Conditions', icon: <Activity size={16} className="text-red-500" />, items: profile.chronic_conditions, color: 'bg-red-100 text-red-700' },
-              { label: 'Medications', icon: <Pill size={16} className="text-green-500" />, items: profile.current_medications, color: 'bg-emerald-100 text-emerald-700' },
-            ].map(card => (
-              <div key={card.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                  {card.icon} {card.label}
-                </h3>
-                {card.items && card.items.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {card.items.map(item => (
-                      <span key={item} className={`px-2.5 py-1 rounded-full text-xs font-semibold ${card.color}`}>{item}</span>
-                    ))}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <Phone size={14} /> Emergency Contact (private)
+              </h3>
+              {profile.emergency_contact_name || profile.emergency_contact_phone ? (
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">
+                    {profile.emergency_contact_name?.[0]?.toUpperCase() || '?'}
                   </div>
-                ) : (
-                  <p className="text-xs text-gray-400">None recorded.</p>
-                )}
-              </div>
-            ))}
+                  <div>
+                    <p className="font-semibold text-gray-900">{profile.emergency_contact_name || '—'}</p>
+                    <p className="text-sm text-blue-600 font-medium">{profile.emergency_contact_phone || '—'}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">No emergency contact set.</p>
+              )}
+              <p className="text-[11px] text-gray-400 mt-3">Not included in the public emergency access link.</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {[
+                { label: 'Allergies', icon: <AlertTriangle size={16} className="text-orange-500" />, items: profile.allergies, color: 'bg-orange-100 text-orange-700' },
+                { label: 'Conditions', icon: <Activity size={16} className="text-red-500" />, items: profile.chronic_conditions, color: 'bg-red-100 text-red-700' },
+                { label: 'Medications', icon: <Pill size={16} className="text-green-500" />, items: profile.current_medications, color: 'bg-emerald-100 text-emerald-700' },
+              ].map(card => (
+                <div key={card.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                    {card.icon} {card.label}
+                  </h3>
+                  {card.items && card.items.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {card.items.map(item => (
+                        <span key={item} className={`px-2.5 py-1 rounded-full text-xs font-semibold ${card.color}`}>{item}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400">None recorded.</p>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )
       )}
     </div>
   );

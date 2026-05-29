@@ -6,6 +6,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { User, UserRole } from './types';
 import { authAPI, setTokens, clearTokens, getToken } from './api';
+import { clearEmergencyProfileCache } from './utils/emergencyProfileCache';
 
 interface AuthContextType {
   user: User | null;
@@ -70,7 +71,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     setIsLoading(true);
     try {
-      const tokens = await authAPI.register({ full_name: fullName, email, password, role, gender });
+      const tokens = await authAPI.register({
+        full_name: fullName,
+        email,
+        password,
+        role: 'patient',
+        gender,
+      });
       setTokens(tokens.access_token, tokens.refresh_token);
       const me = await authAPI.me();
       setUser(me);
@@ -86,7 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     authAPI.logout().catch(() => {});
     clearTokens();
-    // Clear persisted view on logout
+    clearEmergencyProfileCache();
     localStorage.removeItem('mylife_view');
     localStorage.removeItem('mylife_tab');
     setUser(null);

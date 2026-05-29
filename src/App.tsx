@@ -1,7 +1,9 @@
 import React, { useState, FormEvent, useEffect } from 'react';
-import { Shield, Clock, Heart, ArrowRight, Lock, PhoneCall, Building, Database, UserCheck, Sparkles, FileText } from 'lucide-react';
+import { Shield, Clock, Heart, ArrowRight, Lock, PhoneCall, Sparkles } from 'lucide-react';
 import DashboardView from './components/DashboardView';
+import EmergencyPublicView from './components/EmergencyPublicView';
 import { useAuth } from './AuthContext';
+import { parseEmergencyAccessTokenFromHash } from './utils/emergencyAccessUrl';
 
 const VIEW_KEY = 'mylife_view';
 
@@ -20,12 +22,19 @@ export default function App() {
   const [emailInput, setEmailInput] = useState('');
   const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
-  const [roleInput, setRoleInput] = useState<'patient' | 'doctor' | 'family_member'>('patient');
   const [genderInput, setGenderInput] = useState<'male' | 'female'>('female');
+  const [emergencyPublicToken, setEmergencyPublicToken] = useState<string | null>(
+    () => parseEmergencyAccessTokenFromHash()
+  );
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
 
-  // If token valid on load → go directly to dashboard
+  useEffect(() => {
+    const onHashChange = () => setEmergencyPublicToken(parseEmergencyAccessTokenFromHash());
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
   useEffect(() => {
     if (isAuthenticated && getSavedView() === 'dashboard') {
       setCurrentView('dashboard');
@@ -73,10 +82,14 @@ export default function App() {
     e.preventDefault(); clearError();
     if (!emailInput || !usernameInput || !passwordInput) return;
     setIsAuthLoading(true);
-    try { await register(usernameInput, emailInput, passwordInput, roleInput, genderInput); setIsSubmitted(true); }
+    try { await register(usernameInput, emailInput, passwordInput, 'patient', genderInput); setIsSubmitted(true); }
     catch {}
     finally { setIsAuthLoading(false); }
   };
+
+  if (emergencyPublicToken) {
+    return <EmergencyPublicView token={emergencyPublicToken} />;
+  }
 
   if (currentView === 'dashboard') return <DashboardView onBackToHome={backToHome} />;
 
@@ -211,7 +224,7 @@ export default function App() {
 
               {/* Trust badges — mobile friendly row */}
               <div className="flex flex-wrap gap-2 mt-5">
-                {['🔒 E2E Encrypted', '✅ PDPA Compliant', '🇱🇰 Made in Sri Lanka'].map(b => (
+                {['🔒 Privacy-first design', '📋 PDPA-aware workflows', '🇱🇰 Made in Sri Lanka'].map(b => (
                   <span key={b} className="text-[11px] font-medium text-gray-600 bg-white/70 border border-gray-200 rounded-full px-3 py-1">
                     {b}
                   </span>
@@ -233,7 +246,7 @@ export default function App() {
                       <div className="flex items-center gap-2 mb-4"><div className="p-2 rounded-lg bg-blue-50 text-blue-500"><Shield size={20}/></div><h2 className="text-base font-bold text-gray-900">Sri Lanka Unified Health ID</h2></div>
                       <p className="text-[13px] text-gray-600 mb-4 leading-relaxed">Store all diagnostics, records, and treatments in your cloud-secured private vault.</p>
                       <div className="space-y-3">
-                        {[['Direct Patient Ownership','Hospitals write to your history, but only you can share it.'],['Double-Key Consent','Clinicians request a temporary token to read your files.'],['Instant Laboratory Sync','Integrates with Asiri, Lanka Hospitals, Durdans, and Hemas.']].map(([t,d]) => (
+                        {[['Direct Patient Ownership','You control who sees your records and for how long.'],['Consent-Based Sharing','Time-limited links and revocable access tokens.'],['Future-Ready Integrations','Designed to connect with clinics and labs as partnerships grow.']].map(([t,d]) => (
                           <div key={t} className="flex items-start gap-2.5">
                             <span className="mt-1 w-2 h-2 rounded-full bg-blue-500 shrink-0"/>
                             <div><h3 className="text-xs font-semibold text-gray-800">{t}</h3><p className="text-[12px] text-gray-500">{d}</p></div>
@@ -247,7 +260,7 @@ export default function App() {
                     <div>
                       <div className="flex items-center gap-2 mb-4"><div className="p-2 rounded-lg bg-emerald-50 text-emerald-600"><Sparkles size={20}/></div><h2 className="text-base font-bold text-gray-900">3 Simple Steps</h2></div>
                       <ul className="space-y-4">
-                        {[['Register','Verify your identity and claim your @vault.lk health username.'],['Sync','Hospitals safely stream diagnostics to your vault.'],['Share & Revoke','Grant 24-hour reading credentials, then revoke with one tap.']].map(([t,d],i) => (
+                        {[['Register','Create your patient vault with email and password.'],['Upload & Organize','Store reports and documents in one place.'],['Share & Revoke','Generate temporary share links and revoke when done.']].map(([t,d],i) => (
                           <li key={t} className="flex gap-3">
                             <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold shrink-0">{i+1}</div>
                             <div><span className="block text-[12.5px] font-semibold text-gray-800">{t}</span><span className="block text-[12px] text-gray-500">{d}</span></div>
@@ -259,28 +272,20 @@ export default function App() {
 
                   {activeSection === 'For Doctors' && (
                     <div>
-                      <div className="flex items-center gap-2 mb-4"><div className="p-2 rounded-lg bg-indigo-50 text-indigo-600"><Building size={20}/></div><h2 className="text-base font-bold text-gray-900">Clinical Integration</h2></div>
-                      <p className="text-[13px] text-gray-600 mb-4 leading-relaxed">Unified API for clinics and hospitals with HL7 FHIR standards integration.</p>
-                      <div className="grid grid-cols-2 gap-3 mb-4">
-                        {[['FHIR API Sync','Standardized schema',Database],['Zero Local Cache','No data on clinic PCs',UserCheck]].map(([t,d,Icon]) => (
-                          <div key={t as string} className="p-3 rounded-xl bg-gray-50 border border-gray-100">
-                            {React.createElement(Icon as any, {size:15, className:"text-indigo-500 mb-1"})}
-                            <h4 className="text-[11.5px] font-semibold text-gray-800">{t as string}</h4>
-                            <p className="text-[10px] text-gray-400">{d as string}</p>
-                          </div>
-                        ))}
+                      <div className="flex items-center gap-2 mb-4"><div className="p-2 rounded-lg bg-indigo-50 text-indigo-600"><Shield size={20}/></div><h2 className="text-base font-bold text-gray-900">For clinical teams</h2></div>
+                      <p className="text-[13px] text-gray-600 mb-4 leading-relaxed">MyLife is built with privacy-first principles and designed for PDPA-aware healthcare workflows. Doctor accounts require verification — register as a patient today or contact us for clinical access.</p>
+                      <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-100 text-[12px] text-indigo-900 leading-relaxed">
+                        Future-ready for hospital and clinic integrations when partnerships are in place.
                       </div>
-                      <div className="text-[11px] text-slate-500 border-t border-gray-100 pt-3 flex items-center gap-1.5 justify-center"><Lock size={11}/> No hardware installation needed.</div>
                     </div>
                   )}
 
                   {activeSection === 'Emergency' && (
                     <div>
                       <div className="flex items-center gap-2 mb-3"><div className="p-2 rounded-lg bg-rose-50 text-rose-600 animate-pulse"><PhoneCall size={20}/></div><h2 className="text-base font-bold text-red-600">Emergency Smart Bypass</h2></div>
-                      <p className="text-[13px] text-gray-600 mb-4 leading-relaxed">In severe incidents, registered responders can safely access critical info.</p>
+                      <p className="text-[13px] text-gray-600 mb-4 leading-relaxed">Patients can generate a revocable emergency access link with critical medical details for responders.</p>
                       <div className="p-3.5 rounded-xl bg-orange-50 border border-orange-100 mb-3">
-                        <div className="flex gap-2 items-center mb-1"><span className="w-2 h-2 rounded-full bg-orange-500 animate-ping"/><h4 className="text-xs font-bold text-orange-950">1990 Suwa Seriya Integration</h4></div>
-                        <p className="text-[12px] text-orange-900">Official rescue groups use biometric validation to read allergies and blood profiles.</p>
+                        <p className="text-[12px] text-orange-900">Token-based access shows blood type, allergies, conditions, and medications — without exposing your full account.</p>
                       </div>
                       <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-900">
                         <strong>Need immediate help?</strong> Dial <a href="tel:1990" className="underline font-bold text-red-600">1990</a> (Free island-wide pre-hospital relief).
@@ -296,21 +301,14 @@ export default function App() {
                         <form onSubmit={handleRegister} className="space-y-3">
                           <div><label className={labelCls}>Full Name</label><input type="text" required value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} placeholder="Saman Alwis" className={inputCls}/></div>
                           <div><label className={labelCls}>Email</label><input type="email" required value={emailInput} onChange={e=>setEmailInput(e.target.value)} placeholder="saman@example.com" className={inputCls}/></div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div><label className={labelCls}>Role</label>
-                              <select value={roleInput} onChange={e=>setRoleInput(e.target.value as any)} className={inputCls}>
-                                <option value="patient">Patient</option>
-                                <option value="doctor">Doctor</option>
-                                <option value="family_member">Family Member</option>
-                              </select>
-                            </div>
-                            <div><label className={labelCls}>Gender</label>
-                              <select value={genderInput} onChange={e=>setGenderInput(e.target.value as any)} className={inputCls}>
-                                <option value="male">Male</option>
-                                <option value="female">Female</option>
-                              </select>
-                            </div>
+                          <div>
+                            <label className={labelCls}>Gender</label>
+                            <select value={genderInput} onChange={e=>setGenderInput(e.target.value as 'male' | 'female')} className={inputCls}>
+                              <option value="male">Male</option>
+                              <option value="female">Female</option>
+                            </select>
                           </div>
+                          <p className="text-[11px] text-gray-500 leading-relaxed">New accounts are registered as <strong>patients</strong>. Doctor, admin, and family caregiver access requires verification.</p>
                           <div><label className={labelCls}>Password</label><input type="password" required value={passwordInput} onChange={e=>setPasswordInput(e.target.value)} placeholder="••••••••" className={inputCls}/></div>
                           <button type="submit" disabled={isAuthLoading} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition disabled:opacity-60">
                             {isAuthLoading ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> : null}

@@ -4,7 +4,7 @@ import {
   AlertCircle, Search, Filter, Download, Copy, ExternalLink,
   Calendar, User, Stethoscope, FlaskConical, Pill, Scan, MoreVertical
 } from 'lucide-react';
-import { recordsAPI } from '../api';
+import { recordsAPI, SIGNED_URL_HINT } from '../api';
 import type { MedicalRecord, CreateRecordPayload, RecordType, ShareQRResponse } from '../types';
 
 const RECORD_TYPE_LABELS: Record<RecordType, { label: string; color: string; icon: React.ReactNode }> = {
@@ -140,9 +140,10 @@ function AddRecordModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
               type="url"
               value={form.file_url || ''}
               onChange={e => setForm(f => ({ ...f, file_url: e.target.value }))}
-              placeholder="https://..."
+              placeholder="Paste from upload — link is temporary"
               className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500 transition"
             />
+            <p className="text-[11px] text-gray-400 mt-1">{SIGNED_URL_HINT}</p>
           </div>
 
           <div className="flex gap-3 pt-2">
@@ -172,57 +173,76 @@ function AddRecordModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
 
 // ── View Record Modal ────────────────────────────────────────
 function ViewRecordModal({ record, onClose }: { record: MedicalRecord; onClose: () => void }) {
-  const type = RECORD_TYPE_LABELS[record.record_type] || RECORD_TYPE_LABELS.other;
+  const [current, setCurrent] = useState<MedicalRecord>(record);
+  const [refreshing, setRefreshing] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    recordsAPI.get(record.id)
+      .then((fresh) => { if (!cancelled) setCurrent(fresh); })
+      .catch(() => { if (!cancelled) setCurrent(record); })
+      .finally(() => { if (!cancelled) setRefreshing(false); });
+    return () => { cancelled = true; };
+  }, [record.id, record]);
+
+  const type = RECORD_TYPE_LABELS[current.record_type] || RECORD_TYPE_LABELS.other;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
         <div className="flex items-center justify-between p-6 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-900">{record.title}</h2>
+          <h2 className="text-lg font-bold text-gray-900">{current.title}</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition"><X size={20} /></button>
         </div>
         <div className="p-6 space-y-4">
           <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${colorMap[type.color]}`}>
             {type.icon} {type.label}
           </div>
-          {record.diagnosis && (
+          {current.diagnosis && (
             <div className="p-3 bg-blue-50 rounded-xl">
               <p className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-1">Diagnosis</p>
-              <p className="text-sm text-blue-900 font-medium">{record.diagnosis}</p>
+              <p className="text-sm text-blue-900 font-medium">{current.diagnosis}</p>
             </div>
           )}
           <div className="grid grid-cols-2 gap-4 text-sm">
-            {record.doctor_name && (
+            {current.doctor_name && (
               <div>
                 <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Doctor</p>
-                <p className="font-semibold text-gray-800">{record.doctor_name}</p>
+                <p className="font-semibold text-gray-800">{current.doctor_name}</p>
               </div>
             )}
-            {record.visit_date && (
+            {current.visit_date && (
               <div>
                 <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Visit Date</p>
-                <p className="font-semibold text-gray-800">{new Date(record.visit_date).toLocaleDateString()}</p>
+                <p className="font-semibold text-gray-800">{new Date(current.visit_date).toLocaleDateString()}</p>
               </div>
             )}
             <div>
               <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Created</p>
-              <p className="font-semibold text-gray-800">{new Date(record.created_at).toLocaleDateString()}</p>
+              <p className="font-semibold text-gray-800">{new Date(current.created_at).toLocaleDateString()}</p>
             </div>
           </div>
-          {record.description && (
+          {current.description && (
             <div>
               <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Notes</p>
-              <p className="text-sm text-gray-700 leading-relaxed bg-gray-50 p-3 rounded-xl">{record.description}</p>
+              <p className="text-sm text-gray-700 leading-relaxed bg-gray-50 p-3 rounded-xl">{current.description}</p>
             </div>
           )}
-          {record.file_url && (
-            <a
-              href={record.file_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-semibold"
-            >
-              <ExternalLink size={16} /> View Attached File
-            </a>
+          {refreshing && (
+            <p className="text-xs text-gray-400">Refreshing file link…</p>
+          )}
+          {current.file_url && (
+            <div>
+              <a
+                href={current.file_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={SIGNED_URL_HINT}
+                className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-semibold"
+              >
+                <ExternalLink size={16} /> View Attached File
+              </a>
+              <p className="text-[11px] text-gray-400 mt-1.5">{SIGNED_URL_HINT}</p>
+            </div>
           )}
         </div>
       </div>
