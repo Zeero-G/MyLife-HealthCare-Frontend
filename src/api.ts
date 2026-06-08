@@ -186,6 +186,29 @@ export const recordsAPI = {
       body: JSON.stringify({ record_id: recordId, expires_hours: expiresHours }),
     }),
 
+  /**
+   * Step 1 of S3 upload: ask backend for a presigned PUT URL.
+   * Returns { presigned_url, public_url, key, expires_in }
+   */
+  presignUpload: (filename: string, contentType: string): Promise<{
+    presigned_url: string;
+    public_url: string;
+    key: string;
+    expires_in: number;
+  }> =>
+    apiFetch(`/records/presign-upload?filename=${encodeURIComponent(filename)}&content_type=${encodeURIComponent(contentType)}`),
+
+  /**
+   * Step 3 of S3 upload: confirm to the backend that the file was PUT to S3.
+   * Backend triggers AI extraction asynchronously.
+   */
+  confirmUpload: (fileUrl: string, filename: string): Promise<{ file_url: string; message: string }> =>
+    apiFetch('/records/confirm-upload', {
+      method: 'POST',
+      body: JSON.stringify({ file_url: fileUrl, filename }),
+    }),
+
+  /** Legacy: proxy upload through backend (fallback if presigned URL fails). */
   upload: (file: File): Promise<{ file_url: string; message: string }> => {
     const formData = new FormData();
     formData.append('file', file);
@@ -195,6 +218,34 @@ export const recordsAPI = {
     });
   },
 };
+
+/**
+ * Step 2 of S3 upload: PUT the file directly from the browser to S3
+ * using the presigned URL (no auth header – S3 uses the signature in the URL).
+ * Throws if the PUT fails.
+ */
+export async function uploadToS3(
+  presignedUrl: string,
+  file: File,
+  onProgress?: (pct: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', presignedUrl);
+    xhr.setRequestHeader('Content-Type', file.type);
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`S3 PUT failed: HTTP ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error('S3 upload network error'));
+    xhr.send(file);
+  });
+}
 
 // ── Emergency API ──────────────────────────────────────────
 

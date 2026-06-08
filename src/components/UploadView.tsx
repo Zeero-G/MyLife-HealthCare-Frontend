@@ -1,11 +1,11 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   UploadCloud, FileText, X, CheckCircle, AlertCircle,
   Image, File, Brain, ChevronDown, ChevronUp, Sparkles,
   Pill, FlaskConical, User, Calendar, Building2, Activity,
-  RefreshCw, ShieldAlert,
+  RefreshCw, ShieldAlert, History, Clock, Stethoscope,
 } from 'lucide-react';
-import { recordsAPI, aiAPI } from '../api';
+import { recordsAPI, aiAPI, uploadToS3 } from '../api';
 import { useAuth } from '../AuthContext';
 import type { AIResult } from '../types';
 
@@ -198,6 +198,79 @@ function AIDataCard({ result }: AIDataCardProps) {
   );
 }
 
+// ── Scan History Card ─────────────────────────────────────────────────────
+
+interface ScanHistoryItem {
+  document_id: string;
+  user_id: string;
+  extracted_data: Record<string, any>;
+  confidence_score: number | null;
+  created_at?: string;
+}
+
+function ScanHistoryCard({ item }: { item: ScanHistoryItem }) {
+  const [open, setOpen] = useState(false);
+  const d = item.extracted_data;
+  const docType = d.document_type || 'Medical Document';
+  const patient = d.patient_name || 'Unknown Patient';
+  const doctor = d.doctor_name ? `Dr. ${d.doctor_name}` : null;
+  const date = d.visit_date || (item.created_at ? new Date(item.created_at).toLocaleDateString() : null);
+
+  // Build a fake AIResult shape that AIDataCard expects
+  const fakeResult: AIResult = {
+    id: item.document_id,
+    user_id: item.user_id,
+    file_url: '',
+    extracted_data: item.extracted_data,
+    confidence_score: item.confidence_score,
+    status: 'completed',
+  };
+
+  return (
+    <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-3 p-4 text-left hover:bg-gray-50/60 transition"
+      >
+        {/* Icon */}
+        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-100 to-blue-100 flex items-center justify-center flex-shrink-0">
+          <Stethoscope size={16} className="text-violet-500" />
+        </div>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-800 truncate">{docType}</p>
+          <div className="flex items-center gap-2 flex-wrap mt-0.5">
+            <span className="text-xs text-gray-500 flex items-center gap-1">
+              <User size={10} /> {patient}
+            </span>
+            {doctor && (
+              <span className="text-xs text-gray-400">· {doctor}</span>
+            )}
+            {date && (
+              <span className="text-xs text-gray-400 flex items-center gap-1">
+                <Clock size={10} /> {date}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Right side */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <ConfidenceBadge score={item.confidence_score} />
+          {open ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
+        </div>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 border-t border-gray-50">
+          <AIDataCard result={fakeResult} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Upload View ───────────────────────────────────────────────────────
 
 type ScanStatus = 'idle' | 'uploading' | 'scanning' | 'done' | 'error';
@@ -208,6 +281,7 @@ interface FileEntry {
   size: number;
   type: string;
   uploadStatus: 'idle' | 'uploading' | 'done' | 'error';
+  uploadProgress: number;   // 0-100
   file_url?: string;
   uploadError?: string;
   scanStatus: ScanStatus;
@@ -219,6 +293,27 @@ export default function UploadView() {
   const { user } = useAuth();
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [history, setHistory] = useState<ScanHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
+  const loadHistory = useCallback(async () => {
+    if (!user) return;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const data = await aiAPI.getSummary(user.id);
+      // getSummary returns raw rows from extracted_reports table
+      setHistory((data as unknown as ScanHistoryItem[]) ?? []);
+    } catch (err: any) {
+      setHistoryError(err.message || 'Could not load history');
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [user]);
+
+  // Load history on mount
+  useEffect(() => { loadHistory(); }, [loadHistory]);
 
   const updateEntry = (name: string, patch: Partial<FileEntry>) => {
     setEntries(prev => prev.map(e => e.name === name ? { ...e, ...patch } : e));
@@ -230,7 +325,8 @@ export default function UploadView() {
       if (!allowed.includes(file.type)) {
         setEntries(prev => [...prev, {
           file, name: file.name, size: file.size, type: file.type,
-          uploadStatus: 'error', uploadError: 'Unsupported type. Use PDF, JPG, PNG, or WebP.',
+          uploadStatus: 'error', uploadProgress: 0,
+          uploadError: 'Unsupported type. Use PDF, JPG, PNG, or WebP.',
           scanStatus: 'idle',
         }]);
         continue;
@@ -238,30 +334,53 @@ export default function UploadView() {
       if (file.size > 20 * 1024 * 1024) {
         setEntries(prev => [...prev, {
           file, name: file.name, size: file.size, type: file.type,
-          uploadStatus: 'error', uploadError: 'File too large. Maximum 20MB.',
+          uploadStatus: 'error', uploadProgress: 0,
+          uploadError: 'File too large. Maximum 20MB.',
           scanStatus: 'idle',
         }]);
         continue;
       }
-      // Add entry
+
+      // Add as uploading
       setEntries(prev => [...prev, {
         file, name: file.name, size: file.size, type: file.type,
-        uploadStatus: 'uploading', scanStatus: 'idle',
+        uploadStatus: 'uploading', uploadProgress: 0, scanStatus: 'idle',
       }]);
-      // Upload to records storage
+
       try {
-        const result = await recordsAPI.upload(file);
+        // Step 1: get presigned PUT URL from backend
+        const { presigned_url, public_url } = await recordsAPI.presignUpload(
+          file.name,
+          file.type || 'application/octet-stream',
+        );
+
+        // Step 2: PUT file directly to S3 with progress
+        await uploadToS3(presigned_url, file, (pct) => {
+          setEntries(prev => prev.map(e =>
+            e.file === file ? { ...e, uploadProgress: pct } : e
+          ));
+        });
+
+        // Step 3: notify backend (triggers AI queuing)
+        await recordsAPI.confirmUpload(public_url, file.name);
+
         setEntries(prev => prev.map(e =>
-          e.name === file.name && e.uploadStatus === 'uploading'
-            ? { ...e, uploadStatus: 'done', file_url: result.file_url }
-            : e
+          e.file === file ? { ...e, uploadStatus: 'done', uploadProgress: 100, file_url: public_url } : e
         ));
       } catch (err: any) {
-        setEntries(prev => prev.map(e =>
-          e.name === file.name && e.uploadStatus === 'uploading'
-            ? { ...e, uploadStatus: 'error', uploadError: err.message || 'Upload failed' }
-            : e
-        ));
+        // Fallback: try legacy proxy upload
+        try {
+          const result = await recordsAPI.upload(file);
+          setEntries(prev => prev.map(e =>
+            e.file === file ? { ...e, uploadStatus: 'done', uploadProgress: 100, file_url: result.file_url } : e
+          ));
+        } catch (err2: any) {
+          setEntries(prev => prev.map(e =>
+            e.file === file
+              ? { ...e, uploadStatus: 'error', uploadProgress: 0, uploadError: err2.message || 'Upload failed' }
+              : e
+          ));
+        }
       }
     }
   }, []);
@@ -382,9 +501,19 @@ export default function UploadView() {
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {/* Upload status */}
                   {entry.uploadStatus === 'uploading' && (
-                    <div className="flex items-center gap-1.5 text-xs text-blue-500 font-medium">
-                      <div className="w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                      Uploading…
+                    <div className="w-full">
+                      <div className="flex items-center gap-1.5 text-xs text-blue-500 font-medium mb-1">
+                        <div className="w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                        Uploading to S3… {entry.uploadProgress > 0 && `${entry.uploadProgress}%`}
+                      </div>
+                      {entry.uploadProgress > 0 && (
+                        <div className="w-full bg-gray-100 rounded-full h-1.5">
+                          <div
+                            className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+                            style={{ width: `${entry.uploadProgress}%` }}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
                   {entry.uploadStatus === 'done' && entry.scanStatus === 'idle' && (
@@ -442,13 +571,13 @@ export default function UploadView() {
         </div>
       )}
 
-      {/* Info Cards */}
-      {entries.length === 0 && (
+      {/* Info Cards (only when nothing queued yet) */}
+      {entries.length === 0 && history.length === 0 && !historyLoading && (
         <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[
-            { icon: '🔒', title: 'End-to-End Encrypted', desc: 'Files are encrypted in transit and at rest in Supabase Storage.' },
+            { icon: '🔒', title: 'End-to-End Encrypted', desc: 'Files are uploaded directly to S3 and encrypted at rest.' },
             { icon: '🤖', title: 'Gemini AI Vision', desc: 'Google Gemini reads your document and extracts diagnoses, meds, and lab data.' },
-            { icon: '📋', title: 'Structured Output', desc: 'Results are saved as structured data you can link to your medical records.' },
+            { icon: '📋', title: 'Structured Output', desc: 'Results are saved as structured data you can review any time in history.' },
           ].map(card => (
             <div key={card.title} className="bg-white rounded-2xl border border-gray-100 p-4 text-center shadow-sm">
               <span className="text-2xl mb-2 block">{card.icon}</span>
@@ -458,6 +587,61 @@ export default function UploadView() {
           ))}
         </div>
       )}
+
+      {/* ── Scan History ──────────────────────────────────────────── */}
+      <div className="mt-10">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-xl bg-gradient-to-br from-violet-100 to-blue-100">
+              <History size={15} className="text-violet-500" />
+            </div>
+            <h2 className="text-base font-bold text-gray-900">Scan History</h2>
+            {history.length > 0 && (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 border border-violet-100">
+                {history.length}
+              </span>
+            )}
+          </div>
+          <button
+            onClick={loadHistory}
+            disabled={historyLoading}
+            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-violet-500 font-medium transition disabled:opacity-50"
+          >
+            <RefreshCw size={13} className={historyLoading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+        </div>
+
+        {historyLoading && (
+          <div className="flex items-center justify-center py-10 text-gray-400">
+            <div className="w-5 h-5 border-2 border-violet-300 border-t-transparent rounded-full animate-spin mr-2" />
+            Loading history…
+          </div>
+        )}
+
+        {historyError && !historyLoading && (
+          <div className="flex items-center gap-2 text-sm text-rose-600 bg-rose-50 border border-rose-100 rounded-xl px-4 py-3">
+            <AlertCircle size={15} />
+            {historyError}
+          </div>
+        )}
+
+        {!historyLoading && !historyError && history.length === 0 && (
+          <div className="text-center py-10 text-gray-400">
+            <History size={36} className="mx-auto mb-3 opacity-30" />
+            <p className="text-sm font-medium">No scans yet</p>
+            <p className="text-xs mt-1">Upload a document and scan with AI to see history here.</p>
+          </div>
+        )}
+
+        {!historyLoading && history.length > 0 && (
+          <div className="space-y-3">
+            {history.map((item) => (
+              <ScanHistoryCard key={item.document_id} item={item} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
