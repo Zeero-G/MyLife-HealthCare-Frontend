@@ -286,6 +286,24 @@ export const healthAPI = {
 // ── AI API ─────────────────────────────────────────────────
 
 export const aiAPI = {
+  /** Trigger AI extraction from a file URL already in storage */
+  processByUrl: (userId: string, fileUrl: string): Promise<AIResult> =>
+    apiFetch('/ai/process', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, file_url: fileUrl }),
+    }),
+
+  /** Upload a file directly to AI for scanning (multipart) */
+  processUpload: (userId: string, file: File): Promise<AIResult> => {
+    const formData = new FormData();
+    formData.append('user_id', userId);
+    formData.append('file', file);
+    return apiFetch('/ai/process-upload', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
   getResult: (docId: string): Promise<AIResult> =>
     apiFetch(`/ai/results/${docId}`),
 
