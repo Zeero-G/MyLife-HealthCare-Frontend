@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   LayoutDashboard,
   FileText,
@@ -12,8 +12,14 @@ import {
   Heart,
   Menu,
   X,
+  Bell,
+  Brain,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react';
 import { useAuth } from '../AuthContext';
+import { aiAPI } from '../api';
+import type { AIResult } from '../types';
 
 import AdminDashboard from './AdminDashboard';
 import DoctorDashboard from './DoctorDashboard';
@@ -25,6 +31,121 @@ import UploadView from './UploadView';
 import EmergencyView from './EmergencyView';
 import WomensHealthView from './WomensHealthView';
 import AppointmentView from './AppointmentView';
+
+// ── Notification Bell ──────────────────────────────────────────────────────
+
+function NotificationBell({ userId }: { userId: string }) {
+  const [open, setOpen] = useState(false);
+  const [results, setResults] = useState<AIResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Load AI scan results
+  useEffect(() => {
+    if (!userId) return;
+    setLoading(true);
+    aiAPI.getSummary(userId)
+      .then(setResults)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [userId]);
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const unread = results.filter(r => r.status === 'completed').length;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="relative p-2 rounded-xl text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"
+        title="AI Scan Notifications"
+      >
+        <Bell size={18} />
+        {unread > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-violet-600 text-white text-[9px] font-black rounded-full flex items-center justify-center">
+            {unread > 9 ? '9+' : unread}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl border border-gray-100 shadow-2xl z-50 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <div className="flex items-center gap-2">
+              <Brain size={15} className="text-violet-600" />
+              <span className="text-sm font-bold text-gray-800">AI Scan History</span>
+            </div>
+            <button onClick={() => setOpen(false)} className="p-1 rounded-lg text-gray-300 hover:text-gray-500 transition">
+              <X size={14} />
+            </button>
+          </div>
+
+          <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="w-5 h-5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : results.length === 0 ? (
+              <div className="py-8 text-center">
+                <Bell size={24} className="text-gray-200 mx-auto mb-2" />
+                <p className="text-xs text-gray-400">No AI scans yet.</p>
+                <p className="text-[11px] text-gray-300 mt-0.5">Upload a document and tap "Scan with AI"</p>
+              </div>
+            ) : (
+              results.map(r => {
+                const pct = r.confidence_score != null ? Math.round(r.confidence_score * 100) : null;
+                const docType = (r.extracted_data as any)?.document_type;
+                const patientName = (r.extracted_data as any)?.patient_name;
+                return (
+                  <div key={r.id} className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition">
+                    <div className="mt-0.5 flex-shrink-0">
+                      {r.status === 'completed'
+                        ? <CheckCircle2 size={16} className="text-emerald-500" />
+                        : <XCircle size={16} className="text-rose-400" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-800 truncate">
+                        {docType || 'Medical Document'}
+                      </p>
+                      {patientName && <p className="text-[11px] text-gray-400">{patientName}</p>}
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {pct !== null && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                            pct >= 80 ? 'bg-emerald-50 text-emerald-600'
+                            : pct >= 60 ? 'bg-amber-50 text-amber-600'
+                            : 'bg-rose-50 text-rose-600'
+                          }`}>{pct}%</span>
+                        )}
+                        <span className="text-[10px] text-gray-300">
+                          {r.file_url?.replace('upload://', '') || 'Scanned'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {results.length > 0 && (
+            <div className="px-4 py-2 border-t border-gray-100">
+              <p className="text-[10px] text-gray-300 text-center">{results.length} scan{results.length !== 1 ? 's' : ''} · Upload more in AI Document Scanner</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 interface DashboardViewProps {
   onBackToHome: () => void;
@@ -183,15 +304,19 @@ export default function DashboardView({ onBackToHome }: DashboardViewProps) {
           ))}
         </nav>
 
+        {/* Notification Bell + User at bottom of sidebar */}
         <div className="px-3 py-4 border-t border-gray-100 space-y-1">
-          <div className="flex items-center gap-2.5 px-3 py-2 mb-1">
-            <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs flex-shrink-0">
-              {user.full_name[0].toUpperCase()}
+          <div className="flex items-center justify-between px-3 py-2 mb-1">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs flex-shrink-0">
+                {user.full_name[0].toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-gray-900 truncate leading-none">{user.full_name}</p>
+                <p className="text-[10px] text-gray-400 truncate mt-0.5">{user.email}</p>
+              </div>
             </div>
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-gray-900 truncate leading-none">{user.full_name}</p>
-              <p className="text-[10px] text-gray-400 truncate mt-0.5">{user.email}</p>
-            </div>
+            <NotificationBell userId={user.id} />
           </div>
           <button
             onClick={onBackToHome}
@@ -257,12 +382,15 @@ export default function DashboardView({ onBackToHome }: DashboardViewProps) {
             <Menu size={20} />
           </button>
           <Logo />
-          <button
-            onClick={() => setActiveTab('account')}
-            className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm focus-visible:outline-none"
-          >
-            {user.full_name[0].toUpperCase()}
-          </button>
+          <div className="flex items-center gap-1">
+            <NotificationBell userId={user.id} />
+            <button
+              onClick={() => setActiveTab('account')}
+              className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm focus-visible:outline-none"
+            >
+              {user.full_name[0].toUpperCase()}
+            </button>
+          </div>
         </div>
 
         <div className="pb-10">
